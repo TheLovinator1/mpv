@@ -110,7 +110,6 @@ function dump_frames()
         return
     end
 
-    -- Close the menu before starting the dump process.
     toggle_menu()
 
     local was_paused = mp.get_property_native("pause")
@@ -119,44 +118,51 @@ function dump_frames()
     mp.osd_message("Starting frame dump...", 3)
 
     local video_filename = mp.get_property("filename/no-ext") or "video"
-    -- Sanitize filename for Windows
     video_filename = string.gsub(video_filename, "[<>:\\/|?*%[%]]", "_")
     local output_path = expand_path(opts.output_dir)
     ensure_dir_exists(output_path)
 
-    -- Seek to the start position and wait for it to settle using a timer.
+    local selection_length = S.end_time - S.start_time
+    local max_frames = 50
+    local short_threshold = 2 -- seconds
+    local use_every_frame = selection_length <= short_threshold
+    local frame_step_time = use_every_frame and nil or selection_length / (max_frames - 1)
+
     mp.commandv("seek", S.start_time, "absolute", "exact")
     mp.add_timeout(0.2, function()
         local frame_count = 0
+        local current_time = S.start_time
         while true do
-            local current_time = mp.get_property_native("time-pos")
-            if not current_time or current_time > S.end_time then
+            if not use_every_frame then
+                mp.commandv("seek", current_time, "absolute", "exact")
+            end
+            local actual_time = mp.get_property_native("time-pos")
+            if not actual_time or actual_time > S.end_time then
                 break
             end
-
-            local frame_num = mp.get_property_native("frame") or math.floor(current_time * 1000)
+            local frame_num = mp.get_property_native("frame") or math.floor(actual_time * 1000)
             local filename = string.format("%s%s%s_frame_%07d.%s",
                                            output_path,
                                            PATH_SEP,
                                            video_filename,
                                            frame_num,
                                            opts.output_format)
-
             mp.commandv("screenshot-to-file", filename, "video")
             frame_count = frame_count + 1
-
-            mp.commandv("frame-step")
-            if mp.get_property_native("eof-reached") then
+            if use_every_frame then
+                mp.commandv("frame-step")
+                current_time = mp.get_property_native("time-pos")
+            else
+                current_time = current_time + frame_step_time
+            end
+            if frame_count >= max_frames or mp.get_property_native("eof-reached") then
                 break
             end
         end
-
         mp.osd_message(string.format("Finished: Dumped %d frames to\n%s", frame_count, output_path), 5)
-
         if not was_paused then
             mp.set_property("pause", "no")
         end
-
         S.start_time = nil
         S.end_time = nil
     end)
