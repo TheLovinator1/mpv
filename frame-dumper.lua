@@ -66,9 +66,10 @@ end
 
 -- Ensures the output directory exists (creates parent directories as needed)
 local function ensure_dir_exists(path)
-    local res = utils.mkdir(path)
-    if res ~= nil and res.status ~= 0 then
-        mp.osd_message("Error creating output directory: " .. path, 3)
+    if is_windows then
+        os.execute('mkdir "' .. path .. '"')
+    else
+        os.execute('mkdir -p "' .. path .. '"')
     end
 end
 
